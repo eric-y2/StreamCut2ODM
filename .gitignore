@@ -1,0 +1,19 @@
+# Ignore virtual environment folder
+venv/
+
+# Ignore logs folder
+logs/
+
+# Ignore captured images folder (static/captures)
+static/captures/
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+
+# Ignore IDE settings (if any)
+.vscode/
+.idea/
+
+# Ignore (if any) local config or secrets
+.env 

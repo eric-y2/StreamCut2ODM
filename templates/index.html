@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频流截图工具</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .folder-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .image-container {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .capture-image {
+            max-width: 100%;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .capture-image:hover {
+            transform: scale(1.02);
+        }
+        .folder-item {
+            cursor: pointer;
+        }
+        .folder-item.active {
+            background-color: #e9ecef;
+        }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .history-item:last-child {
+            border-bottom: none;
+        }
+        .history-item:hover {
+            background-color: #f8f9fa;
+        }
+        .history-url {
+            flex-grow: 1;
+            margin-right: 1rem;
+            cursor: pointer;
+            color: #0d6efd;
+        }
+        .history-url:hover {
+            text-decoration: underline;
+        }
+        .history-delete {
+            color: #dc3545;
+            cursor: pointer;
+        }
+        .history-delete:hover {
+            color: #bb2d3b;
+        }
+        .dropdown-menu {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        /* 日志面板样式 */
+        .log-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #1e1e1e;
+            color: #fff;
+            font-family: 'Consolas', 'Monaco', monospace;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 5px;
+            border-radius: 2px;
+        }
+        .log-entry:hover {
+            background-color: #2d2d2d;
+        }
+        .log-info {
+            color: #4ec9b0;
+        }
+        .log-warning {
+            color: #dcdcaa;
+        }
+        .log-error {
+            color: #f14c4c;
+        }
+        .log-timestamp {
+            color: #9cdcfe;
+            margin-right: 10px;
+        }
+        .log-level {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .log-controls {
+            margin-bottom: 10px;
+        }
+        .log-controls button {
+            margin-right: 5px;
+        }
+        /* 图片详情样式 */
+        .image-info-table {
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+        .image-info-table th {
+            width: 150px;
+            text-align: right;
+            padding-right: 1rem;
+            color: #666;
+        }
+        .image-info-table td {
+            word-break: break-all;
+        }
+        .exif-section {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #dee2e6;
+        }
+        .exif-section h6 {
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+        .modal-xl {
+            max-width: 90%;
+        }
+        .modal-body {
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .image-preview {
+            max-width: 100%;
+            max-height: 60vh;
+            margin-bottom: 1rem;
+        }
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        .loading-spinner.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="mb-4">视频流截图工具</h1>
+        
+        <!-- 视频流控制 -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="input-group">
+                    <input type="text" id="streamUrl" class="form-control" placeholder="输入RTMP视频流地址 (例如: rtmp://server/live/stream)">
+                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="historyDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-clock-history"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" id="historyList" aria-labelledby="historyDropdown">
+                        {% for item in history %}
+                        <li class="history-item">
+                            <span class="history-url" data-url="{{ item.url }}">{{ item.name }}</span>
+                            <i class="bi bi-trash history-delete" data-url="{{ item.url }}"></i>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <button class="btn btn-primary" id="startBtn">开始捕获</button>
+                    <button class="btn btn-danger" id="stopBtn" disabled>停止捕获</button>
+                </div>
+                <small class="form-text text-muted mt-1">支持的RTMP地址格式: rtmp://server/live/stream</small>
+            </div>
+        </div>
+
+        <!-- 主要内容区域 -->
+        <div class="row">
+            <!-- 文件夹列表 -->
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">捕获文件夹</h5>
+                    </div>
+                    <div class="card-body folder-list">
+                        <div class="list-group" id="folderList">
+                            {% for folder in folders %}
+                            <a href="#" class="list-group-item list-group-item-action folder-item" data-folder="{{ folder }}">
+                                {{ folder }}
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 图片展示区域 -->
+            <div class="col-md-9">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">图片预览</h5>
+                    </div>
+                    <div class="card-body image-container" id="imageContainer">
+                        <div class="text-center text-muted" id="noImages">
+                            请选择一个文件夹查看图片
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 日志显示面板 -->
+                <div class="card mt-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">运行日志</h5>
+                        <div class="log-controls">
+                            <button class="btn btn-sm btn-outline-secondary" id="clearLogs">
+                                <i class="bi bi-trash"></i> 清除日志
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" id="toggleLogs">
+                                <i class="bi bi-chevron-up"></i> 收起
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-container" id="logContainer">
+                            <!-- 日志内容将通过JavaScript动态添加 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图片详情模态框 -->
+    <div class="modal fade" id="imageDetailModal" tabindex="-1" aria-labelledby="imageDetailModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="imageDetailModalLabel">图片详情</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="loading-spinner">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <p class="mt-2">正在加载图片信息...</p>
+                    </div>
+                    <div class="image-detail-content" style="display: none;">
+                        <div class="text-center mb-4">
+                            <img id="modalImagePreview" class="image-preview" src="" alt="图片预览">
+                        </div>
+                        <div class="image-info">
+                            <h6>基本信息</h6>
+                            <table class="table table-sm image-info-table">
+                                <tr>
+                                    <th>文件名</th>
+                                    <td id="info-filename"></td>
+                                </tr>
+                                <tr>
+                                    <th>文件大小</th>
+                                    <td id="info-size"></td>
+                                </tr>
+                                <tr>
+                                    <th>创建时间</th>
+                                    <td id="info-created"></td>
+                                </tr>
+                                <tr>
+                                    <th>修改时间</th>
+                                    <td id="info-modified"></td>
+                                </tr>
+                                <tr>
+                                    <th>尺寸</th>
+                                    <td id="info-dimensions"></td>
+                                </tr>
+                                <tr>
+                                    <th>格式</th>
+                                    <td id="info-format"></td>
+                                </tr>
+                                <tr>
+                                    <th>色彩模式</th>
+                                    <td id="info-mode"></td>
+                                </tr>
+                            </table>
+                            <div class="exif-section">
+                                <h6>EXIF信息</h6>
+                                <div id="exif-info" class="table-responsive">
+                                    <table class="table table-sm image-info-table">
+                                        <!-- EXIF信息将通过JavaScript动态添加 -->
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let currentFolder = null;
+        let logContainer = document.getElementById('logContainer');
+        let isLogsExpanded = true;
+
+        // Socket.io 事件处理
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            addLogEntry('info', '已连接到服务器');
+        });
+
+        socket.on('error', (data) => {
+            addLogEntry('error', data.message);
+            alert(data.message);
+            stopCapture();
+        });
+
+        socket.on('new_folder', (data) => {
+            addLogEntry('info', `创建新文件夹: ${data.folder}`);
+            addFolderToList(data.folder);
+        });
+
+        socket.on('new_image', (data) => {
+            addLogEntry('info', `保存图片: ${data.folder}/${data.filename}`);
+            if (currentFolder === data.folder) {
+                addImageToContainer(data.filename);
+            }
+        });
+
+        socket.on('log', (data) => {
+            addLogEntry(data.level, data.message);
+        });
+
+        // 日志处理函数
+        function addLogEntry(level, message) {
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${level}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const levelText = level.toUpperCase();
+            
+            entry.innerHTML = `
+                <span class="log-timestamp">[${timestamp}]</span>
+                <span class="log-level">[${levelText}]</span>
+                <span class="log-message">${message}</span>
+            `;
+            
+            logContainer.appendChild(entry);
+            // 自动滚动到底部
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // 清除日志
+        document.getElementById('clearLogs').addEventListener('click', () => {
+            logContainer.innerHTML = '';
+            addLogEntry('info', '日志已清除');
+        });
+
+        // 切换日志面板展开/收起
+        document.getElementById('toggleLogs').addEventListener('click', () => {
+            const logCard = logContainer.closest('.card');
+            const toggleBtn = document.getElementById('toggleLogs');
+            
+            if (isLogsExpanded) {
+                logCard.querySelector('.card-body').style.display = 'none';
+                toggleBtn.innerHTML = '<i class="bi bi-chevron-down"></i> 展开';
+            } else {
+                logCard.querySelector('.card-body').style.display = 'block';
+                toggleBtn.innerHTML = '<i class="bi bi-chevron-up"></i> 收起';
+            }
+            isLogsExpanded = !isLogsExpanded;
+        });
+
+        // 历史记录处理
+        function updateHistoryList() {
+            fetch('/stream_history')
+                .then(response => response.json())
+                .then(history => {
+                    const historyList = document.getElementById('historyList');
+                    historyList.innerHTML = history.map(item => `
+                        <li class="history-item">
+                            <span class="history-url" data-url="${item.url}">${item.name}</span>
+                            <i class="bi bi-trash history-delete" data-url="${item.url}"></i>
+                        </li>
+                    `).join('');
+                    
+                    // 重新绑定事件
+                    bindHistoryEvents();
+                })
+                .catch(error => console.error('获取历史记录失败:', error));
+        }
+
+        function bindHistoryEvents() {
+            // 点击历史记录项
+            document.querySelectorAll('.history-url').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    const url = e.target.dataset.url;
+                    document.getElementById('streamUrl').value = url;
+                });
+            });
+
+            // 点击删除按钮
+            document.querySelectorAll('.history-delete').forEach(item => {
+                item.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const url = e.target.dataset.url;
+                    if (confirm('确定要删除这条历史记录吗？')) {
+                        try {
+                            const response = await fetch(`/stream_history/${encodeURIComponent(url)}`, {
+                                method: 'DELETE'
+                            });
+                            if (response.ok) {
+                                updateHistoryList();
+                            }
+                        } catch (error) {
+                            console.error('删除历史记录失败:', error);
+                        }
+                    }
+                });
+            });
+        }
+
+        // 开始捕获
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            const streamUrl = document.getElementById('streamUrl').value.trim();
+            if (!streamUrl) {
+                addLogEntry('error', '请输入视频流地址');
+                alert('请输入视频流地址');
+                return;
+            }
+
+            try {
+                addLogEntry('info', `开始捕获视频流: ${streamUrl}`);
+                const response = await fetch('/start_capture', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ stream_url: streamUrl }),
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                    if (data.folder) {
+                        addFolderToList(data.folder);
+                        selectFolder(data.folder);
+                    }
+                    updateHistoryList();
+                } else {
+                    addLogEntry('error', data.error);
+                    alert(data.error);
+                }
+            } catch (error) {
+                addLogEntry('error', '启动捕获失败: ' + error.message);
+                alert('启动捕获失败');
+            }
+        });
+
+        // 停止捕获
+        document.getElementById('stopBtn').addEventListener('click', async () => {
+            try {
+                addLogEntry('info', '停止捕获视频流');
+                const response = await fetch('/stop_capture', {
+                    method: 'POST',
+                });
+                if (response.ok) {
+                    stopCapture();
+                }
+            } catch (error) {
+                addLogEntry('error', '停止捕获失败: ' + error.message);
+                alert('停止捕获失败');
+            }
+        });
+
+        function stopCapture() {
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+
+        // 文件夹列表处理
+        function addFolderToList(folder) {
+            const folderList = document.getElementById('folderList');
+            const folderItem = document.createElement('a');
+            folderItem.href = '#';
+            folderItem.className = 'list-group-item list-group-item-action folder-item';
+            folderItem.dataset.folder = folder;
+            folderItem.textContent = folder;
+            folderItem.addEventListener('click', (e) => {
+                e.preventDefault();
+                selectFolder(folder);
+            });
+            folderList.insertBefore(folderItem, folderList.firstChild);
+        }
+
+        // 选择文件夹
+        async function selectFolder(folder) {
+            currentFolder = folder;
+            
+            // 更新文件夹选中状态
+            document.querySelectorAll('.folder-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.folder === folder) {
+                    item.classList.add('active');
+                }
+            });
+
+            // 获取并显示图片
+            try {
+                const response = await fetch(`/get_images/${folder}`);
+                const data = await response.json();
+                
+                const container = document.getElementById('imageContainer');
+                container.innerHTML = '';
+                
+                if (data.images && data.images.length > 0) {
+                    data.images.forEach(filename => {
+                        addImageToContainer(filename);
+                    });
+                } else {
+                    container.innerHTML = '<div class="text-center text-muted">该文件夹中没有图片</div>';
+                }
+            } catch (error) {
+                console.error('获取图片失败:', error);
+            }
+        }
+
+        // 添加图片到容器
+        function addImageToContainer(filename) {
+            const container = document.getElementById('imageContainer');
+            const noImages = document.getElementById('noImages');
+            if (noImages) {
+                noImages.remove();
+            }
+
+            const imgWrapper = document.createElement('div');
+            imgWrapper.className = 'text-center mb-4';
+            
+            const img = document.createElement('img');
+            img.src = `/static/captures/${currentFolder}/${filename}`;
+            img.className = 'capture-image';
+            img.alt = filename;
+            img.onclick = () => showImageDetail(currentFolder, filename);
+            
+            imgWrapper.appendChild(img);
+            container.appendChild(imgWrapper);
+        }
+
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // 显示图片详情
+        async function showImageDetail(folder, filename) {
+            const modal = new bootstrap.Modal(document.getElementById('imageDetailModal'));
+            const modalContent = document.querySelector('.image-detail-content');
+            const loadingSpinner = document.querySelector('.loading-spinner');
+            
+            // 显示加载动画
+            modalContent.style.display = 'none';
+            loadingSpinner.classList.add('active');
+            modal.show();
+
+            try {
+                // 获取图片信息
+                const response = await fetch(`/get_image_info/${folder}/${filename}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // 更新图片预览
+                    const previewImg = document.getElementById('modalImagePreview');
+                    previewImg.src = `/static/captures/${folder}/${filename}`;
+                    
+                    // 更新基本信息
+                    document.getElementById('info-filename').textContent = data.filename;
+                    document.getElementById('info-size').textContent = formatFileSize(data.size);
+                    document.getElementById('info-created').textContent = data.created_time;
+                    document.getElementById('info-modified').textContent = data.modified_time;
+                    document.getElementById('info-dimensions').textContent = 
+                        `${data.dimensions.width} × ${data.dimensions.height} 像素`;
+                    document.getElementById('info-format').textContent = data.dimensions.format;
+                    document.getElementById('info-mode').textContent = data.dimensions.mode;
+
+                    // 更新EXIF信息
+                    const exifTable = document.querySelector('#exif-info table');
+                    exifTable.innerHTML = '';
+                    
+                    if (Object.keys(data.exif).length > 0) {
+                        for (const [tag, value] of Object.entries(data.exif)) {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <th>${tag}</th>
+                                <td>${value}</td>
+                            `;
+                            exifTable.appendChild(row);
+                        }
+                    } else {
+                        exifTable.innerHTML = '<tr><td colspan="2" class="text-center">无EXIF信息</td></tr>';
+                    }
+
+                    // 隐藏加载动画，显示内容
+                    loadingSpinner.classList.remove('active');
+                    modalContent.style.display = 'block';
+                } else {
+                    throw new Error(data.error || '获取图片信息失败');
+                }
+            } catch (error) {
+                console.error('获取图片信息失败:', error);
+                loadingSpinner.innerHTML = `
+                    <div class="alert alert-danger" role="alert">
+                        获取图片信息失败: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            // 为现有文件夹添加点击事件
+            document.querySelectorAll('.folder-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    selectFolder(item.dataset.folder);
+                });
+            });
+
+            // 绑定历史记录事件
+            bindHistoryEvents();
+            
+            // 添加初始日志
+            addLogEntry('info', '应用已启动');
+        });
+    </script>
+</body>
+</html> 
